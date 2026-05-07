@@ -987,7 +987,7 @@ class RgbToLabel:
         pass
 
     def __call__(self, img):
-        img = np.array(img)
+        img = np.array(img, dtype=np.uint32)
         assert img.ndim == 3 and img.shape[2] == 3
         result = img[..., 0] * 65536 + img[..., 1] * 256 + img[..., 2]
         return result
