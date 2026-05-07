@@ -1,3 +1,5 @@
+#type: ignore
+
 import collections
 
 collections.Sequence = collections.abc.Sequence

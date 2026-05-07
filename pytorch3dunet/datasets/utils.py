@@ -1,3 +1,6 @@
+#type: ignore
+
+
 import collections
 from typing import Any, Optional, Union, List
 
@@ -5,6 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, ConcatDataset, Dataset
 from pytorch3dunet.augment import transforms
+from pytorch3dunet.datasets.hdf5 import DataAccessShapeWrapper
 from pytorch3dunet.unet3d.utils import get_logger, get_class
 
 logger = get_logger('Dataset')
