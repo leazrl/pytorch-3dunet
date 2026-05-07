@@ -1,3 +1,5 @@
+#type: ignore
+
 import glob
 import os
 from abc import abstractmethod
@@ -123,12 +125,12 @@ class AbstractHDF5Dataset(ConfigDataset):
         if slice_builder_name == 'FilterSliceBuilder':
             # FilterSliceBuilder needs data access, use DataAccessShapeWrapper
             raw_wrapper = DataAccessShapeWrapper(file_path, raw_internal_path, self.roi, self.auto_padding)
-            label_wrapper = DataAccessShapeWrapper(file_path, label_internal_path, self.roi, self.auto_padding) if phase != 'test' else None
+            label_wrapper = DataAccessShapeWrapper(file_path, label_internal_path, self.roi, self.auto_padding) #if phase != 'test' else None
             weight_wrapper = DataAccessShapeWrapper(file_path, weight_internal_path, self.roi, self.auto_padding) if weight_internal_path is not None else None
         else:
             # Regular SliceBuilder only needs shape, use ShapeOnlyWrapper for better performance
             raw_wrapper = ShapeOnlyWrapper(file_path, raw_internal_path, self.roi, self.auto_padding)
-            label_wrapper = ShapeOnlyWrapper(file_path, label_internal_path, self.roi, self.auto_padding) if phase != 'test' else None
+            label_wrapper = ShapeOnlyWrapper(file_path, label_internal_path, self.roi, self.auto_padding) #if phase != 'test' else None
             weight_wrapper = ShapeOnlyWrapper(file_path, weight_internal_path, self.roi, self.auto_padding) if weight_internal_path is not None else None
         
         # Build slice indices - SliceBuilder only uses .shape and .ndim (lazy)
@@ -288,9 +290,10 @@ class BaseShapeWrapper:
             dataset = f[self.internal_path]
             if self.roi is not None:
                 if isinstance(self.roi, tuple) and all(isinstance(r, slice) for r in self.roi):
+                    full_roi = self.roi + (slice(None),) * (len(dataset.shape) - len(self.roi))
                     base_shape = tuple(
                         len(range(*slice_obj.indices(dim_size))) if slice_obj != slice(None) else dim_size
-                        for slice_obj, dim_size in zip(self.roi, dataset.shape)
+                        for slice_obj, dim_size in zip(full_roi, dataset.shape)
                     )
                 elif isinstance(self.roi, (list, tuple)):
                     base_shape = (len(self.roi),) + dataset.shape[1:]
