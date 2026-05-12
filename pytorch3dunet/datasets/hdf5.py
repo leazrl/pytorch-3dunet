@@ -234,6 +234,50 @@ class AbstractHDF5Dataset(ConfigDataset):
     def get_patch_shape(self):
         return self.patch_shape
     
+    def filter_by_foreground_ratio(self, fg_ratio_threshold):
+        if self.phase == 'test':
+            logger.warning('Filtering by foreground ratio is not applicable in test phase.')
+            return
+        
+        raw_wrapper = DataAccessShapeWrapper(self.file_path, self.raw_internal_path, self.roi, self.auto_padding)
+        label_wrapper = DataAccessShapeWrapper(self.file_path, self.label_internal_path, self.roi, self.auto_padding)
+        weight_wrapper = DataAccessShapeWrapper(self.file_path, self.weight_internal_path, self.roi, self.auto_padding) if self.weight_internal_path is not None else None
+
+        slice_builder_config = {
+            'name': 'FilterSliceBuilder',
+            'patch_shape': self.patch_shape,
+            'halo_shape': self.halo_shape,
+            'stride_shape': self.patch_shape,  # use non-overlapping patches for filtering
+            'threshold': fg_ratio_threshold,
+        }
+
+        nr_of_patches_before = len(self.raw_slices)
+
+        slice_builder = get_slice_builder(raw_wrapper, label_wrapper, weight_wrapper, slice_builder_config)
+        self.raw_slices = slice_builder.raw_slices
+        self.label_slices = slice_builder.label_slices
+        self.weight_slices = slice_builder.weight_slices
+        self.patch_count = len(self.raw_slices)
+        
+        del raw_wrapper, label_wrapper, weight_wrapper  # free memory
+
+        logger.info(f'After filtering by foreground ratio > {fg_ratio_threshold}: number of patches reduced from {nr_of_patches_before} to {self.patch_count}')
+
+    def subsample_by_fraction(self, fraction):
+        if self.phase == 'test':
+            logger.warning('Subsampling by fraction is not applicable in test phase.')
+            return
+        
+        nr_of_patches_before = len(self.raw_slices)
+        nr_of_patches_to_keep = int(nr_of_patches_before * fraction)
+        self.raw_slices = self.raw_slices[:nr_of_patches_to_keep]
+        self.label_slices = self.label_slices[:nr_of_patches_to_keep]
+        if self.weight_internal_path is not None:
+            self.weight_slices = self.weight_slices[:nr_of_patches_to_keep]
+        self.patch_count = len(self.raw_slices)
+
+        logger.info(f'After subsampling by fraction {fraction}: number of patches reduced from {nr_of_patches_before} to {self.patch_count}')
+
     @classmethod
     def create_datasets(cls, dataset_config, phase):
         phase_config = dataset_config[phase]

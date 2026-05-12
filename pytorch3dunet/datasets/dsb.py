@@ -548,6 +548,49 @@ class Abstract_TIF_Dataset(ConfigDataset):
 
     def __len__(self):
         return len(self.images)
+    
+    def filter_by_foreground_ratio(self, fg_ratio_threshold):
+        """
+        Filter out samples with foreground ratio below the given threshold.
+        """
+        if self.masks is None:
+            raise ValueError("Masks are not loaded, cannot filter by foreground ratio.")
+        
+        length_before = len(self.images)
+
+        filtered_images = []
+        filtered_masks = []
+        filtered_paths = []
+        
+        for img, mask, path in zip(self.images, self.masks, self.paths):
+            fg_ratio = np.sum(mask > 0) / mask.size
+            if fg_ratio >= fg_ratio_threshold:
+                filtered_images.append(img)
+                filtered_masks.append(mask)
+                filtered_paths.append(path)
+        
+        self.images = filtered_images
+        self.masks = filtered_masks
+        self.paths = filtered_paths
+
+        logger.info(f'After filtering by foreground ratio > {fg_ratio_threshold}: number of patches reduced from {length_before} to {len(filtered_images)}.')
+
+    def subsample_by_fraction(self, fraction):
+        """
+        Subsample the dataset by the given fraction.
+        """
+        if fraction <= 0 or fraction > 1:
+            raise ValueError("Fraction must be in the range (0, 1].")
+        
+        total_samples = len(self.images)
+        subsample_size = int(total_samples * fraction)
+        
+        self.images = self.images[:subsample_size]
+        if self.masks is not None:
+            self.masks = self.masks[:subsample_size]
+        self.paths = self.paths[:subsample_size]
+
+        logger.info(f'After subsampling by fraction {fraction}: number of patches reduced from {total_samples} to {len(self.images)}.')
 
     @classmethod
     def prediction_collate(cls, batch):
