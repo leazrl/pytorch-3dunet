@@ -7,8 +7,6 @@ from typing import Any, Optional, Union, List
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, ConcatDataset, Dataset
-from pytorch3dunet.augment import transforms
-from pytorch3dunet.datasets.hdf5 import DataAccessShapeWrapper
 from pytorch3dunet.unet3d.utils import get_logger, get_class
 
 logger = get_logger('Dataset')
@@ -381,6 +379,64 @@ def get_test_loaders(config):
 
         yield DataLoader(test_dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=True,
                          collate_fn=collate_fn)
+        
+def get_filtered_test_loaders(config):
+    """
+    Returns test DataLoader for AdaBN.
+
+    :return: generator of DataLoader objects
+    """
+
+    assert 'loaders' in config, 'Could not find data loaders configuration'
+    loaders_config = config['loaders'].copy()
+    
+    # copy test config into val key
+    loaders_config['val'] = loaders_config['test'].copy()
+    
+    loaders_config['val']['transformer']['label'] = [
+        {"name": "ToTensor", "expand_dims": True}
+    ]
+
+    logger.info('Creating test set loaders for AdaBN...')
+
+    # get dataset class and create test datasets in 'val' phase to get labels
+    dataset_cls_str = loaders_config.get('dataset', None)
+    if dataset_cls_str is None:
+        dataset_cls_str = 'StandardHDF5Dataset'
+        logger.warning(f"Cannot find dataset class in the config. Using default '{dataset_cls_str}'.")
+    dataset_class = _loader_classes(dataset_cls_str)
+    test_datasets = dataset_class.create_datasets(loaders_config, phase='val')
+
+    num_workers = loaders_config.get('num_workers', 1)
+    logger.info(f'Number of workers for the dataloader: {num_workers}')
+
+    batch_size = loaders_config.get('batch_size', 1)
+    if torch.cuda.device_count() > 1 and not config['device'] == 'cpu':
+        logger.info(
+            f'{torch.cuda.device_count()} GPUs available. Using batch_size = {torch.cuda.device_count()} * {batch_size}')
+        batch_size = batch_size * torch.cuda.device_count()
+    
+    for ds in test_datasets:
+        logger.info(f'Loading test set from: {ds.file_path}...')
+        
+        # filter by foreground ratio
+        foreground_ratio_threshold = config.get('foreground_ratio_threshold', 0.0)
+        if foreground_ratio_threshold > 0.0:
+            logger.info(f'Filtering test set by foreground ratio threshold: {foreground_ratio_threshold}...')
+            ds.filter_by_foreground_ratio(foreground_ratio_threshold)
+
+        # subsample by data fraction
+        data_fraction = config.get('data_fraction', 1.0)
+        if data_fraction < 1.0:
+            logger.info(f'Subsampling test set by data fraction: {data_fraction}...')
+            ds.subsample_by_fraction(data_fraction)
+        
+        if hasattr(ds, 'prediction_collate'):
+            collate_fn = ds.prediction_collate
+        else:
+            collate_fn = default_prediction_collate 
+
+        yield DataLoader(ds, batch_size=batch_size, num_workers=num_workers, pin_memory=True, collate_fn=collate_fn)
 
 def get_val_loader(loaders_config):
     """
