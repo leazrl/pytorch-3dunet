@@ -259,24 +259,20 @@ class AbstractHDF5Dataset(ConfigDataset):
         self.weight_slices = slice_builder.weight_slices
         self.patch_count = len(self.raw_slices)
         
-        del raw_wrapper, label_wrapper, weight_wrapper  # free memory
-
+        del raw_wrapper, label_wrapper, weight_wrapper 
         logger.info(f'After filtering by foreground ratio > {fg_ratio_threshold}: number of patches reduced from {nr_of_patches_before} to {self.patch_count}')
 
-    def subsample_by_fraction(self, fraction):
-        if self.phase == 'test':
-            logger.warning('Subsampling by fraction is not applicable in test phase.')
-            return
+    def subsample_by_count(self, n_patches):
         
         nr_of_patches_before = len(self.raw_slices)
-        nr_of_patches_to_keep = int(nr_of_patches_before * fraction)
+        nr_of_patches_to_keep = min(n_patches, nr_of_patches_before)
         self.raw_slices = self.raw_slices[:nr_of_patches_to_keep]
         self.label_slices = self.label_slices[:nr_of_patches_to_keep]
         if self.weight_internal_path is not None:
             self.weight_slices = self.weight_slices[:nr_of_patches_to_keep]
         self.patch_count = len(self.raw_slices)
 
-        logger.info(f'After subsampling by fraction {fraction}: number of patches reduced from {nr_of_patches_before} to {self.patch_count}')
+        logger.info(f'After subsampling by count {n_patches}: number of patches reduced from {nr_of_patches_before} to {self.patch_count}')
 
     @classmethod
     def create_datasets(cls, dataset_config, phase):

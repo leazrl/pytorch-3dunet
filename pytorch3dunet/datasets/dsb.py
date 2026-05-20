@@ -575,23 +575,20 @@ class Abstract_TIF_Dataset(ConfigDataset):
 
         logger.info(f'After filtering by foreground ratio > {fg_ratio_threshold}: number of patches reduced from {length_before} to {len(filtered_images)}.')
 
-    def subsample_by_fraction(self, fraction):
+    def subsample_by_count(self, n_patches):
         """
-        Subsample the dataset by the given fraction.
+        Subsample the dataset by the given number of patches.
         """
-        if fraction <= 0 or fraction > 1:
-            raise ValueError("Fraction must be in the range (0, 1].")
-        
-        total_samples = len(self.images)
-        subsample_size = int(total_samples * fraction)
-        
-        self.images = self.images[:subsample_size]
+        if n_patches <= 0:
+            raise ValueError("Number of patches must be a positive integer.")
+
+        self.images = self.images[:n_patches]
         if self.masks is not None:
-            self.masks = self.masks[:subsample_size]
-        self.paths = self.paths[:subsample_size]
+            self.masks = self.masks[:n_patches]
+        self.paths = self.paths[:n_patches]
 
-        logger.info(f'After subsampling by fraction {fraction}: number of patches reduced from {total_samples} to {len(self.images)}.')
-
+        logger.info(f'After subsampling by count {n_patches}: number of patches reduced from {len(self.images)} to {len(self.images)}.')
+       
     @classmethod
     def prediction_collate(cls, batch):
         return dsb_prediction_collate(batch)
