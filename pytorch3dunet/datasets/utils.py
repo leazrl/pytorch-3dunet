@@ -389,23 +389,17 @@ def get_filtered_test_loaders(config):
 
     assert 'loaders' in config, 'Could not find data loaders configuration'
     loaders_config = config['loaders'].copy()
-    
-    # copy test config into val key
-    loaders_config['val'] = loaders_config['test'].copy()
-    
-    loaders_config['val']['transformer']['label'] = [
-        {"name": "ToTensor", "expand_dims": True}
-    ]
 
     logger.info('Creating test set loaders for AdaBN...')
 
-    # get dataset class and create test datasets in 'val' phase to get labels
     dataset_cls_str = loaders_config.get('dataset', None)
+
     if dataset_cls_str is None:
         dataset_cls_str = 'StandardHDF5Dataset'
         logger.warning(f"Cannot find dataset class in the config. Using default '{dataset_cls_str}'.")
-    dataset_class = _loader_classes(dataset_cls_str)
-    test_datasets = dataset_class.create_datasets(loaders_config, phase='val')
+        
+    dataset_class = _loader_classes(dataset_cls_str) 
+    test_datasets = dataset_class.create_datasets(loaders_config, phase='val')   # create datasets in phase 'val' to have access to labels for filtering
 
     num_workers = loaders_config.get('num_workers', 1)
     logger.info(f'Number of workers for the dataloader: {num_workers}')
@@ -425,12 +419,23 @@ def get_filtered_test_loaders(config):
             logger.info(f'Filtering test set by foreground ratio threshold: {foreground_ratio_threshold}...')
             ds.filter_by_foreground_ratio(foreground_ratio_threshold)
 
-        # subsample by data fraction
-        data_fraction = config.get('data_fraction', 1.0)
-        if data_fraction < 1.0:
-            logger.info(f'Subsampling test set by data fraction: {data_fraction}...')
-            ds.subsample_by_fraction(data_fraction)
+        # subsample by amount of patches to use for AdaBN
+        total_patches = len(ds)
+        n_patches = config.get('n_patches', total_patches)
+        if n_patches is not None:
+            if n_patches > total_patches:
+                logger.warning(
+                    f'Requested n_patches={n_patches} exceeds available patches={total_patches}. '
+                    f'Using all {total_patches} patches instead.'
+                )
+            elif n_patches < total_patches:
+                logger.info(f'Subsampling test set from {total_patches} to {n_patches} patches...')
+                ds.subsample_by_count(n_patches)
+            else:
+                logger.info(f'n_patches={n_patches} equals total patches, no subsampling needed.')
         
+
+        # how to collate batches of data for prediction 
         if hasattr(ds, 'prediction_collate'):
             collate_fn = ds.prediction_collate
         else:
@@ -604,3 +609,4 @@ def get_patch_size(patch_index):
 def read_file_names(path):
     with open(path, 'r') as f:
         return f.read().splitlines()
+    
