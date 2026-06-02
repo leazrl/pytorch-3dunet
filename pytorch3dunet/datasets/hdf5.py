@@ -5,6 +5,8 @@ import os
 from abc import abstractmethod
 from itertools import chain
 import h5py
+from skimage.measure import regionprops
+
 
 import pytorch3dunet.augment.transforms as transforms
 from pytorch3dunet.datasets.utils import get_slice_builder, ConfigDataset, calculate_stats, mirror_pad, get_roi_slice
@@ -235,6 +237,9 @@ class AbstractHDF5Dataset(ConfigDataset):
         return self.patch_shape
     
     def filter_by_foreground_ratio(self, fg_ratio_threshold):
+        '''
+        filters the patches by foreground ratio
+        '''
         if self.phase == 'test':
             logger.warning('Filtering by foreground ratio is not applicable in test phase.')
             return
@@ -261,8 +266,71 @@ class AbstractHDF5Dataset(ConfigDataset):
         
         del raw_wrapper, label_wrapper, weight_wrapper 
         logger.info(f'After filtering by foreground ratio > {fg_ratio_threshold}: number of patches reduced from {nr_of_patches_before} to {self.patch_count}')
+    
+    def filter_by_centroids(self, overlap = True): 
+        '''
+        replaces current slices with patches centered on nuclei/mitochondria
+        '''
+
+        if self.phase == 'test':
+            logger.warning('Centraoid filtering is not applicable in test phase')
+            return
+        
+        label_wrapper = DataAccessShapeWrapper(self.file_path, self.label_internal_path, self.roi, self.auto_padding)
+
+        label_data = label_wrapper[:] #reads all labels from disk
+        pz, py, px = self.patch_shape
+        shape = label_data.shape  
+
+        logger.info('Computing nuclei centroids for patch adjustment')
+
+        # get regionprobs
+        #regions = [r for r in regionprops(label_data) if r.area >= min_size] # filters out to small labeled areas
+
+        raw_slices = []
+        label_slices = []
+        accepted_centroids = []
+
+        regions = regionprops(label_data)
+
+        for probs in regions: 
+            z0, y0, x0 = [int(c) for c in probs.centroid] 
+
+            #create patches around centroids
+            pz_0, pz_1 = z0, z0 + pz
+            py_0, py_1 = y0 - py//2, y0 + py//2
+            px_0, px_1 = x0 - px//2, x0 + px//2
+
+            #check for boundary 
+            if z0 < 0 or y0 < 0 or x0 < 0: continue
+            if z1 > shape[0] or y1 > shape[1] or x1 > shape[2]: continue
+
+            if not overlap:
+                too_close = any(
+                    abs(y0 - cy) < py and abs(x0 - cx) < px
+                    for cz, cy, cx in accepted_centroids
+                    )
+                
+                if too_close:
+                        continue
+                
+                accepted_centroids.append((z0, y0, x0))
+            
+            s = (slice(pz_0, pz_1), slice(py_0, py_1), slice(px_0, px_1))
+            raw_slices.append(s)
+            label_slices.append(s)
+
+        logger.info(f'Built {len(raw_slices)} centroid-centered patches '
+                f'(allow_overlap={overlap}, rejected={len(regions) - len(raw_slices)})')
+        
+        self.raw_slices = raw_slices
+        self.label_slices = label_slices
+        self.weight_slices = []        
 
     def subsample_by_count(self, n_patches):
+        '''
+        only uses n_patches 
+        '''
         
         nr_of_patches_before = len(self.raw_slices)
         nr_of_patches_to_keep = min(n_patches, nr_of_patches_before)

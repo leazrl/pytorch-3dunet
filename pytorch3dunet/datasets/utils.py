@@ -165,7 +165,7 @@ class FilterSliceBuilder(SliceBuilder):
         self._label_slices = list(label_slices)
 
 
-
+    
 class SingleZSliceBuilder(SliceBuilder):
     """
     Custom SliceBuilder that ensures exactly one patch per Z slice,
@@ -413,6 +413,16 @@ def get_filtered_test_loaders(config):
     for ds in test_datasets:
         logger.info(f'Loading test set from: {ds.file_path}...')
         
+        
+        # get patches that are centered on nuclei before filtering for background
+
+        patch_centroid = config.get('patch_centroid', False)
+        allow_overlap = config.get('allow_overlap', True)
+
+        if patch_centroid:
+            ds.filter_by_centroids(overlap=allow_overlap)
+
+
         # filter by foreground ratio
         foreground_ratio_threshold = config.get('foreground_ratio_threshold', 0.0)
         if foreground_ratio_threshold > 0.0:
@@ -434,7 +444,7 @@ def get_filtered_test_loaders(config):
             else:
                 logger.info(f'n_patches={n_patches} equals total patches, no subsampling needed.')
         
-
+      
         # how to collate batches of data for prediction 
         if hasattr(ds, 'prediction_collate'):
             collate_fn = ds.prediction_collate

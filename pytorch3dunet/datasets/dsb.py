@@ -6,6 +6,8 @@ collections.Sequence = collections.abc.Sequence
 import os
 import glob
 from abc import abstractmethod
+from skimage.measure import regionprops
+
 
 import h5py
 import imageio.v2 as imageio
@@ -458,6 +460,7 @@ class Abstract_TIF_Dataset(ConfigDataset):
         mask_dir,
         phase,
         transformer_config,
+        patch_shape = None,
         filenames_path=None,
         expand_dims=True,
         global_norm=False,
@@ -482,6 +485,7 @@ class Abstract_TIF_Dataset(ConfigDataset):
 
         self.images, self.paths = self._load_files(image_dir, expand_dims, image_key, prediction_channel)
         self.file_path = image_dir
+        self.patch_shape = patch_shape
 
         if percentiles is None:
             percentile_min = None
@@ -588,6 +592,64 @@ class Abstract_TIF_Dataset(ConfigDataset):
         self.paths = self.paths[:n_patches]
 
         logger.info(f'After subsampling by count {n_patches}: number of patches reduced from {len(self.images)} to {len(self.images)}.')
+
+    def filter_by_centroids(self, overlap =True):
+        if self.patch_shape is None:
+            raise ValueError("patch_shape must be set to use filter_by_centroids.")
+        if self.phase == 'test':
+            logger.warning('Centroid filtering is not applicable in test phase.')
+            return
+        if self.masks is None:
+            raise ValueError("Masks are not loaded, cannot filter by centroids.")
+
+
+        pz, py, px = self.patch_shape
+        patched_images = []
+        patched_masks = []
+        patched_paths = []
+
+
+        for image, mask, path in zip(self.images, self.masks, self.paths):
+            shape = mask.shape
+            accepted_centroids = []
+
+            region = regionprops(mask) #maybe add min area? 
+            #logger.info(f'Found {len(region)} nuclei in {path}')
+
+            for probs in region:
+                z0, y0, x0 = [int(c) for c in probs.centroid]
+
+                #create patches around centroid
+                pz_0, pz_1 = z0, z0 + pz
+                py_0, py_1 = y0 - py//2, y0 - py//2 + py
+                px_0, px_1 = x0 - px//2, x0 - px//2 + px
+
+                #check boundary
+                if any(v < 0 for v in [pz_0, py_0, px_0]): continue
+                if pz_1 > shape[0] or py_1 > shape[1] or px_1 > shape[2]: continue
+
+                # make patches not overlap if in specific region
+                if not overlap :
+                    too_close = any(
+                        abs(y0 - cy) < py and abs(x0 - cx) < px
+                        for cz, cy, cx in accepted_centroids
+                    )
+                    if too_close:
+                        continue
+                    accepted_centroids.append((z0, y0, x0))
+
+                s = (slice(pz_0, pz_1), slice(py_0, py_1), slice(px_0, px_1))
+                patched_images.append(image[s])
+                patched_masks.append(mask[s])
+                patched_paths.append(path)
+
+        logger.info(f'Built {len(patched_images)} centroid-centered patches '
+                    f'from {len(self.images)} images (allow_overlap ={overlap}).')
+    
+        self.images = patched_images
+        self.masks = patched_masks
+        self.paths = patched_paths
+
        
     @classmethod
     def prediction_collate(cls, batch):
@@ -626,6 +688,7 @@ class Standard_TIF_Dataset(Abstract_TIF_Dataset):
         prediction_channel=None,
         min_object_size=None,
         instance_zero_background=False,
+        patch_shape=None, 
     ):
         super().__init__(
             image_dir=image_dir,
@@ -640,6 +703,7 @@ class Standard_TIF_Dataset(Abstract_TIF_Dataset):
             prediction_channel=prediction_channel,
             min_object_size=min_object_size,
             instance_zero_background=instance_zero_background,
+            patch_shape=patch_shape,
         )
 
     def _load_files(self, dir, expand_dims, key, prediction_channel=None):
@@ -694,6 +758,7 @@ class Standard_TIF_Dataset(Abstract_TIF_Dataset):
                 prediction_channel=dataset_config.get("prediction_channel", None),
                 min_object_size=dataset_config.get("min_object_size", None),
                 instance_zero_background=dataset_config.get("instance_zero_background", False),
+                patch_shape=dataset_config.get("patch_shape", None), 
             )
         ]
 
@@ -713,6 +778,7 @@ class Hoechst_Dataset(Abstract_TIF_Dataset):
         prediction_channel=None,
         min_object_size=None,
         instance_zero_background=False,
+        patch_shape=None, 
     ):
         super().__init__(
             image_dir=image_dir,
@@ -727,6 +793,7 @@ class Hoechst_Dataset(Abstract_TIF_Dataset):
             prediction_channel=prediction_channel,
             min_object_size=min_object_size,
             instance_zero_background=instance_zero_background,
+            patch_shape=patch_shape,
         )
 
     def _load_files(self, dir, expand_dims, key, prediction_channel=None):
@@ -780,6 +847,7 @@ class Hoechst_Dataset(Abstract_TIF_Dataset):
                 prediction_channel=dataset_config.get("prediction_channel", None),
                 min_object_size=dataset_config.get("min_object_size", None),
                 instance_zero_background=dataset_config.get("instance_zero_background", False),
+                patch_shape=dataset_config.get("patch_shape", None), 
             )
         ]
 
@@ -799,6 +867,7 @@ class HeLaNuc_Dataset(Abstract_TIF_Dataset):
         prediction_channel=None,
         min_object_size=None,
         instance_zero_background=False,
+        patch_shape=None, 
     ):
         super().__init__(
             image_dir=image_dir,
@@ -813,6 +882,7 @@ class HeLaNuc_Dataset(Abstract_TIF_Dataset):
             prediction_channel=prediction_channel,
             min_object_size=min_object_size,
             instance_zero_background=instance_zero_background,
+            patch_shape=patch_shape,
         )
 
     def _load_files(self, dir, expand_dims, key, prediction_channel=None):
@@ -867,6 +937,7 @@ class HeLaNuc_Dataset(Abstract_TIF_Dataset):
                 prediction_channel=dataset_config.get("prediction_channel", None),
                 min_object_size=dataset_config.get("min_object_size", None),
                 instance_zero_background=dataset_config.get("instance_zero_background", False),
+                patch_shape=dataset_config.get("patch_shape", None),  
             )
         ]
 
@@ -898,6 +969,7 @@ class TIF_txt_Dataset(Abstract_TIF_Dataset):
         prediction_channel=None,
         min_object_size=None,
         instance_zero_background=False,
+        patch_shape=None, 
     ):
         super().__init__(
             image_dir=image_dir,
@@ -913,6 +985,8 @@ class TIF_txt_Dataset(Abstract_TIF_Dataset):
             prediction_channel=prediction_channel,
             min_object_size=min_object_size,
             instance_zero_background=instance_zero_background,
+            patch_shape=patch_shape,
+
         )
 
     def _load_files(self, dir, expand_dims, key, prediction_channel=None):
@@ -964,5 +1038,6 @@ class TIF_txt_Dataset(Abstract_TIF_Dataset):
                 prediction_channel=dataset_config.get("prediction_channel", None),
                 min_object_size=dataset_config.get("min_object_size", None),
                 instance_zero_background=dataset_config.get("instance_zero_background", False),
+                patch_shape=dataset_config.get("patch_shape", None), 
             )
         ]
